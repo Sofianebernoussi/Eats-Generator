@@ -1,0 +1,25 @@
+{
+  "device": "android",
+  "proxy_enabled": false,
+  "cycle_proxies": false,
+  "auto_get_otp": true,
+  "save_info": {
+    "cookies": false,
+    "device_data": false,
+    "account_info": true
+  },
+  "promos": {
+    "auto_apply": true,
+    "promo_code": "eats-49YEDDPTC4"
+  },
+  "imap": {
+    "username": "your_email@gmail.com",
+    "password": "your_app_password",
+    "server": "imap.gmail.com",
+    "domains": [
+      "yourdomain.com",
+      "anotherdomain.com",
+      "<- MULTIPLE DOMAINS OPTIONAL"
+    ]
+  }
+}
