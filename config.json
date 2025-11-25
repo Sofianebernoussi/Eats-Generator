@@ -1,15 +1,22 @@
 {
-  "device": "android",
+  "device": "ios",
   "proxy_enabled": false,
   "cycle_proxies": false,
-  "auto_get_otp": true,
+  "auto_get_otp": false,
+    "country_code": "FR",
   "save_info": {
     "cookies": false,
     "device_data": false,
     "account_info": true
   },
+    "stealth": {
+    "enable_stealth_mode": true,
+    "min_delay_between_requests": 2,
+    "max_delay_between_requests": 8,
+    "max_retries": 3
+  },
   "promos": {
-    "auto_apply": true,
+    "auto_apply": false,
     "promo_code": "eats-49YEDDPTC4"
   },
   "imap": {

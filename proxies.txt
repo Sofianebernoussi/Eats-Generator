@@ -1,2 +1,1 @@
-user:pass@ip:port
-ip:port
+brd-customer-hl_c408bb10-zone-residential_proxy1:evzdu73yycp6@brd.superproxy.io:33335
