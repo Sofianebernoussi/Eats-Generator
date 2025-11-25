@@ -546,6 +546,7 @@ class AccountGenerator:
                             "fieldAnswers": [
                                 {
                                     "fieldType": "PHONE_COUNTRY_CODE",
+                                    "countryCode": "+33",
                                     "isoCountryCode": "FR"
                                 },
                                 {
