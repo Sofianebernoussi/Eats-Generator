@@ -17,26 +17,28 @@ from curl_cffi import requests
 import secrets
 
 from otp import EmailOTPExtractor, IMAPClient
-
+# Assurez-vous que le fichier sms_wrapper.py est dans le même dossier
+from sms_wrapper import SMSActivateAPI 
 
 ENDPOINTS = {
     "submit_form": "https://auth.uber.com/v2/submit-form",
     "submit_form_geo": "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
-    "apply_promo_code": "https://cn-phx2.cfe.uber.com/rt/delivery/v1/consumer/apply-and-get-savings"
+    "apply_promo_code": "https://cn-geo1.uber.com/rt/eats/v1/eater-promos/add"  # Fixed endpoint
 }
 
 FIRST_NAMES = [
     "James", "Mary", "John", "Patricia", "Robert", "Jennifer",
     "Michael", "Linda", "William", "Elizabeth", "David", "Barbara",
     "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah",
-    "Charles", "Karen", "Christopher", "Nancy", "Daniel", "Lisa"
+    "Charles", "Karen", "Christopher", "Nancy", "Daniel", "Lisa",
+    "Pierre", "Sophie", "Thomas", "Marie", "Nicolas", "Camille"
 ]
 
 LAST_NAMES = [
     "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia",
     "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez",
     "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore",
-    "Jackson", "Martin", "Lee", "Perez", "Thompson", "White"
+    "Martin", "Bernard", "Dubois", "Thomas", "Robert", "Richard"
 ]
 
 
@@ -44,22 +46,19 @@ def generate_device_info():
     with open('config.json', 'r') as f:
         chosen_device = json.load(f)['device']
 
-    BATTERY_STATUSES = [
-        "charging",
-        "discharging"
-    ]
+    BATTERY_STATUSES = ["charging", "discharging"]
     android_id = secrets.token_hex(8)
 
     shared_info = {
         "batteryLevel": 1.0,
         "batteryStatus": random.choice(BATTERY_STATUSES),
-        "carrier": "",
-        "carrierMcc": "",
-        "carrierMnc": "",
+        "carrier": "Orange F",
+        "carrierMcc": "208",
+        "carrierMnc": "01",
         "course": 0.0,
         "deviceAltitude": 0.0,
-        "deviceLatitude": 0.0,
-        "deviceLongitude": 0.0,
+        "deviceLatitude": 48.8566,
+        "deviceLongitude": 2.3522,
         "emulator": False,
         "horizontalAccuracy": 0.0,
         "ipAddress": f"{random.randint(10, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}",
@@ -70,7 +69,7 @@ def generate_device_info():
         "sourceApp": "eats",
         "specVersion": "2.0",
         "speed": 0.0,
-        "systemTimeZone": "America/New_York",
+        "systemTimeZone": "Europe/Paris",
         "unknownItems": {"a": []},
         "version": "6.294.10000",
         "versionChecksum": str(uuid.uuid4()).upper(),
@@ -86,10 +85,10 @@ def generate_device_info():
         "env_id": uuid.uuid4().hex,
         "env_checksum": str(uuid.uuid4()).upper(),
         "device_ids": {
-        "advertiserId": str(uuid.uuid4()),
-        "uberId": str(uuid.uuid4()).upper(),
-        "perfId": str(uuid.uuid4()).upper(),
-        "vendorId": str(uuid.uuid4()).upper()
+            "advertiserId": str(uuid.uuid4()),
+            "uberId": str(uuid.uuid4()).upper(),
+            "perfId": str(uuid.uuid4()).upper(),
+            "vendorId": str(uuid.uuid4()).upper()
         },
         "epoch": time.time() * 1000,
     }
@@ -113,15 +112,8 @@ def generate_device_info():
         "epoch": {"value": time.time() * 1000},
     }
 
-    ios_device_data = {
-        **shared_info,
-        **ios_info
-    }
-
-    android_device_data = {
-        **shared_info,
-        **android_info
-    }
+    ios_device_data = {**shared_info, **ios_info}
+    android_device_data = {**shared_info, **android_info}
 
     return ios_device_data if chosen_device == "ios" else android_device_data
 
@@ -137,11 +129,9 @@ class ProxyManager:
         proxy_path = Path(self.proxy_file)
         if not proxy_path.exists():
             return False
-
         content = proxy_path.read_text().strip()
         if not content:
             return False
-
         lines = [line.strip() for line in content.split('\n') if line.strip()]
         self.proxies = [self._parse_proxy(line) for line in lines]
         return len(self.proxies) > 0
@@ -149,28 +139,23 @@ class ProxyManager:
     def _parse_proxy(self, line: str) -> str:
         if line.startswith('http://') or line.startswith('https://'):
             return line
-
         parts = line.split(':')
-
         if '@' in line:
             if len(parts) == 2:
                 auth, host_port = line.split('@')
                 return f"http://{auth}@{host_port}"
             return f"http://{line}"
-
         if len(parts) == 4:
             user, password, ip, port = parts
             return f"http://{user}:{password}@{ip}:{port}"
         elif len(parts) == 2:
             ip, port = parts
             return f"http://{ip}:{port}"
-
         return f"http://{line}"
 
     def get_proxy(self) -> Optional[str]:
         if not self.proxies:
             return None
-
         if self.cycle:
             proxy = self.proxies[self.current_index]
             self.current_index = (self.current_index + 1) % len(self.proxies)
@@ -187,7 +172,7 @@ class RequestHandler:
     def reset_session(self):
         self.session = requests.Session()
 
-    async def post(self, name: str, url: str, headers: Dict, data: Dict) -> Optional[requests.Response]:
+    async def post(self, name: str, url: str, headers: Dict, data: Dict, return_on_error: bool = False) -> Optional[requests.Response]:
         proxies = None
         if self.proxy_manager:
             proxy = self.proxy_manager.get_proxy()
@@ -195,6 +180,8 @@ class RequestHandler:
                 proxies = {'http': proxy, 'https': proxy}
 
         try:
+            print(f"[DEBUG] {name} - POST {url}")
+            
             response = self.session.post(
                 url,
                 headers=headers,
@@ -208,11 +195,21 @@ class RequestHandler:
                 return response
             else:
                 print(f'[✗] {name} failed: {response.status_code}')
-                print(f'    Response: {response.text[:200]}...')
+                try:
+                    error_json = response.json()
+                    print(f'    Error JSON: {json.dumps(error_json, indent=2)}')
+                except json.JSONDecodeError:
+                    print(f'    Response text: {response.text[:1000]}')
+                
+                # Return response anyway if requested (for debugging)
+                if return_on_error:
+                    return response
                 return None
 
         except Exception as e:
-            print(f"[!] Request error in {name}: {e}")
+            print(f"[!] Request error in {name}: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 
@@ -222,6 +219,13 @@ class AccountGenerator:
         self.proxy_manager = self._init_proxy_manager()
         self.request_handler = RequestHandler(self.proxy_manager)
         self.device_info = generate_device_info()
+        self.last_form_response = None  # Store last response for flow analysis
+        
+        sms_config = self.config.get('sms_activate', {})
+        self.sms_api = None
+        if sms_config.get('enabled', False):
+            print("[*] SMS Activate module enabled")
+            self.sms_api = SMSActivateAPI(sms_config.get('api_key', ''))
 
     def _load_config(self, config_path: str) -> Dict:
         try:
@@ -232,16 +236,12 @@ class AccountGenerator:
             return {"proxy_enabled": False, "cycle_proxies": False}
 
     def _init_proxy_manager(self) -> Optional[ProxyManager]:
-        # Only use proxies if proxy_enabled is True
         if not self.config.get('proxy_enabled', False):
             return None
-
-        # Ignore cycle_proxies setting if proxy_enabled is False
         proxy_manager = ProxyManager(cycle=self.config.get('cycle_proxies', False))
         if not proxy_manager.load_proxies():
             print("[!] Proxy enabled but no proxies found in proxies.txt")
             raise FileNotFoundError("Proxies enabled but proxies.txt is empty or missing")
-
         print(f"[✓] Loaded {len(proxy_manager.proxies)} proxies")
         return proxy_manager
 
@@ -261,10 +261,12 @@ class AccountGenerator:
 
     def _get_headers(self) -> Dict:
         client_app_version = self.device_info.get('version', '6.294.10000')
+        device = self.config.get('device', 'android').lower()
+        
         return {
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
             "Content-Type": "application/json",
             "Host": "cn-geo1.uber.com",
             "Origin": "https://auth.uber.com",
@@ -277,14 +279,63 @@ class AccountGenerator:
             "Sec-Fetch-Site": "same-site",
             "User-Agent": self._get_user_agent(),
             "Via": "1.1 martian-a6a2b0967dba8230c0eb",
-            "X-Uber-Analytics-Session-Id": "ecf13d6e-caa1-4848-9cc8-deb332d3212e",
-            "X-Uber-App-Device-Id": "cea7e57f-cf80-397c-909c-241a9384b974",
+            "X-Uber-Analytics-Session-Id": str(uuid.uuid4()),
+            "X-Uber-App-Device-Id": str(uuid.uuid4()),
             "X-Uber-App-Variant": "ubereats",
             "X-Uber-Client-Id": "com.ubercab.eats",
             "X-Uber-Client-Name": "eats",
             "X-Uber-Client-Version": client_app_version,
-            "X-Uber-Device-Udid": "248e7351-7757-40ce-b63d-c931d5ea8e54",
+            "X-Uber-Device-Udid": str(uuid.uuid4()),
         }
+
+    def _analyze_form_response(self, resp_json: Dict) -> Dict:
+        """Analyse la réponse du formulaire pour comprendre le flow attendu."""
+        analysis = {
+            "session_id": resp_json.get('inAuthSessionID'),
+            "next_screens": [],
+            "flow_type": resp_json.get('form', {}).get('flowType'),
+            "raw_form": resp_json.get('form', {})
+        }
+        
+        screens = resp_json.get('form', {}).get('screens', [])
+        for screen in screens:
+            screen_info = {
+                "type": screen.get('screenType'),
+                "fields": []
+            }
+            for field in screen.get('fields', []):
+                field_info = {
+                    "fieldType": field.get('fieldType'),
+                    "hint": field.get('hint'),
+                    "label": field.get('label'),
+                    "placeholder": field.get('placeholder'),
+                    "value": field.get('value'),
+                    "options": field.get('options'),
+                    "all_keys": list(field.keys())
+                }
+                screen_info["fields"].append(field_info)
+            analysis["next_screens"].append(screen_info)
+        
+        print(f"[DEBUG] Flow analysis:")
+        print(f"  - Session ID: {analysis['session_id'][:50] if analysis['session_id'] else 'None'}...")
+        print(f"  - Flow type: {analysis['flow_type']}")
+        for i, screen in enumerate(analysis["next_screens"]):
+            print(f"  - Screen {i}: {screen['type']}")
+            for field in screen["fields"]:
+                print(f"    - Field: {field['fieldType']}")
+                print(f"      Keys: {field['all_keys']}")
+                if field.get('options'):
+                    print(f"      Options (first 3): {field['options'][:3] if isinstance(field['options'], list) else field['options']}")
+                if field.get('value'):
+                    print(f"      Default value: {field['value']}")
+        
+        # Dump complet des champs pour debug si c'est un écran téléphone
+        for screen in screens:
+            if 'PHONE' in screen.get('screenType', ''):
+                print(f"\n[DEBUG] Full phone screen dump:")
+                print(json.dumps(screen, indent=2, default=str)[:2000])
+        
+        return analysis
 
     async def email_signup(self, email: str) -> Optional[str]:
         device = self.config.get('device', 'android').lower()
@@ -314,7 +365,7 @@ class AccountGenerator:
                     },
                     "deviceData": json.dumps(self.device_info),
                     "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
                     "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
                     "screenAnswers": [
                         {
@@ -338,7 +389,7 @@ class AccountGenerator:
         headers = {
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "fr-FR,fr;q=0.9",
             "Content-Type": "application/json",
             "Host": "auth.uber.com",
             "Origin": "https://auth.uber.com",
@@ -351,14 +402,14 @@ class AccountGenerator:
             "User-Agent": self._get_user_agent(),
             "Via": "1.1 martian-a6a2b2967dba8230c0eb",
             "X-Csrf-Token": "x",
-            "X-Uber-Analytics-Session-Id": "ecf13d6e-cab1-4848-9cc8-deb332d3212e",
-            "X-Uber-App-Device-Id": "cea7e57f-cf80-397c-709c-241a9384b974",
+            "X-Uber-Analytics-Session-Id": str(uuid.uuid4()),
+            "X-Uber-App-Device-Id": str(uuid.uuid4()),
             "X-Uber-App-Variant": "ubereats",
             "X-Uber-Client-Id": "com.ubercab.eats",
             "X-Uber-Client-Name": "eats",
             "X-Uber-Client-Version": client_app_version,
             'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
-            "X-Uber-Device-Udid": "248e7351-7757-40ce-b64d-c931d5ea8e54",
+            "X-Uber-Device-Udid": str(uuid.uuid4()),
         }
 
         response = await self.request_handler.post(
@@ -369,10 +420,13 @@ class AccountGenerator:
         )
 
         if response:
-            return response.json().get('inAuthSessionID')
+            resp_json = response.json()
+            self._analyze_form_response(resp_json)
+            return resp_json.get('inAuthSessionID')
         return None
 
-    async def submit_otp(self, session_id: str, otp: str) -> Optional[str]:
+    async def submit_otp(self, session_id: str, otp: str) -> Tuple[Optional[str], Optional[Dict]]:
+        """Retourne (session_id, form_analysis) pour savoir quel écran vient ensuite."""
         data = {
             "formContainerAnswer": {
                 "inAuthSessionID": session_id,
@@ -421,13 +475,220 @@ class AccountGenerator:
         )
 
         if response:
-            return response.json().get('inAuthSessionID')
+            resp_json = response.json()
+            analysis = self._analyze_form_response(resp_json)
+            self.last_form_response = resp_json
+            return resp_json.get('inAuthSessionID'), analysis
+        return None, None
+
+    # --- SMS HANDLING METHODS ---
+    async def _add_phone_number(self, session_id: str, phone_number: str, expected_screen_type: str = None) -> Optional[str]:
+        """
+        Ajoute un numéro de téléphone. Utilise le screenType détecté dynamiquement.
+        """
+        # Nettoyer le numéro
+        clean_number = phone_number
+        if phone_number.startswith('+33'):
+            clean_number = phone_number[3:]
+        elif phone_number.startswith('33'):
+            clean_number = phone_number[2:]
+        if clean_number.startswith('0'):
+            clean_number = clean_number[1:]
+        
+        # Déterminer le screenType à utiliser
+        screen_type = expected_screen_type or "PHONE_NUMBER_PROGRESSIVE"
+        
+        # Vérifier si on doit utiliser un autre screenType basé sur la dernière réponse
+        if self.last_form_response:
+            screens = self.last_form_response.get('form', {}).get('screens', [])
+            for screen in screens:
+                if 'PHONE' in screen.get('screenType', ''):
+                    screen_type = screen.get('screenType')
+                    print(f"[DEBUG] Using detected screenType: {screen_type}")
+                    break
+        
+        print(f"[*] Adding phone number: +33 {clean_number}")
+        print(f"[DEBUG] Using screenType: {screen_type}")
+        
+        device = self.config.get('device', 'android').lower()
+        client_app_version = self.device_info.get('version', '6.294.10000')
+        
+        data = {
+            "formContainerAnswer": {
+                "inAuthSessionID": session_id,
+                "formAnswer": {
+                    "flowType": "PROGRESSIVE_SIGN_UP",
+                    "standardFlow": True,
+                    "accountManagementFlow": False,
+                    "daffFlow": False,
+                    "productConstraints": {
+                        "isEligibleForWebOTPAutofill": False,
+                        "uslFELibVersion": "",
+                        "uslMobileLibVersion": "",
+                        "isWhatsAppAvailable": False,
+                        "isPublicKeyCredentialSupported": True,
+                        "isFacebookAvailable": False,
+                        "isGoogleAvailable": False,
+                        "isRakutenAvailable": False,
+                        "isKakaoAvailable": False
+                    },
+                    "additionalParams": {
+                        "isEmailUpdatePostAuth": False
+                    },
+                    "deviceData": json.dumps(self.device_info),
+                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats",
+                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
+                    "screenAnswers": [
+                        {
+                            "screenType": screen_type,
+                            "eventType": "TypeInputPhoneNumber",
+                            "fieldAnswers": [
+                                {
+                                    "fieldType": "PHONE_COUNTRY_CODE",
+                                    "isoCountryCode": "FR"
+                                },
+                                {
+                                    "fieldType": "PHONE_NUMBER",
+                                    "phoneNumber": clean_number
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+        
+        headers = self._get_headers()
+        response = await self.request_handler.post("Add Phone", ENDPOINTS['submit_form_geo'], headers, data)
+        
+        if response:
+            resp_json = response.json()
+            self._analyze_form_response(resp_json)
+            self.last_form_response = resp_json
+            return resp_json.get('inAuthSessionID')
         return None
 
-    async def complete_registration(self, email: str, name: str, session_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
-        session_id = await self._skip_submit(session_id)
-        if not session_id:
-            return False, None, None
+    async def _submit_phone_otp(self, session_id: str, sms_code: str) -> Optional[str]:
+        """Soumet le code SMS."""
+        print(f"[*] Submitting SMS code: {sms_code}")
+        
+        device = self.config.get('device', 'android').lower()
+        client_app_version = self.device_info.get('version', '6.294.10000')
+        
+        # Détecter le screenType attendu
+        screen_type = "PHONE_OTP_CODE"
+        if self.last_form_response:
+            screens = self.last_form_response.get('form', {}).get('screens', [])
+            for screen in screens:
+                if 'OTP' in screen.get('screenType', '') or 'SMS' in screen.get('screenType', ''):
+                    screen_type = screen.get('screenType')
+                    print(f"[DEBUG] Using detected OTP screenType: {screen_type}")
+                    break
+        
+        data = {
+            "formContainerAnswer": {
+                "inAuthSessionID": session_id,
+                "formAnswer": {
+                    "flowType": "PROGRESSIVE_SIGN_UP",
+                    "standardFlow": True,
+                    "accountManagementFlow": False,
+                    "daffFlow": False,
+                    "productConstraints": {
+                        "isEligibleForWebOTPAutofill": False,
+                        "uslFELibVersion": "",
+                        "uslMobileLibVersion": "",
+                        "isWhatsAppAvailable": False,
+                        "isPublicKeyCredentialSupported": True,
+                        "isFacebookAvailable": False,
+                        "isGoogleAvailable": False,
+                        "isRakutenAvailable": False,
+                        "isKakaoAvailable": False
+                    },
+                    "additionalParams": {
+                        "isEmailUpdatePostAuth": False
+                    },
+                    "deviceData": json.dumps(self.device_info),
+                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR",
+                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
+                    "screenAnswers": [
+                        {
+                            "screenType": screen_type,
+                            "eventType": "TypePhoneOTP",
+                            "fieldAnswers": [
+                                {
+                                    "fieldType": "SMS_OTP_CODE",
+                                    "smsOTPCode": sms_code
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+        
+        headers = self._get_headers()
+        response = await self.request_handler.post("Submit SMS OTP", ENDPOINTS['submit_form_geo'], headers, data)
+        
+        if response:
+            resp_json = response.json()
+            self._analyze_form_response(resp_json)
+            self.last_form_response = resp_json
+            return resp_json.get('inAuthSessionID')
+        return None
+
+    async def complete_registration(self, email: str, name: str, session_id: str, form_analysis: Dict = None) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Complete la registration en analysant le flow dynamiquement."""
+        
+        # Analyser les écrans attendus
+        if form_analysis:
+            next_screens = form_analysis.get('next_screens', [])
+            print(f"[DEBUG] Expected screens after OTP: {[s['type'] for s in next_screens]}")
+        
+        sms_enabled = self.config.get('sms_activate', {}).get('enabled', False)
+        
+        if sms_enabled and self.sms_api:
+            country_id = self.config['sms_activate'].get('country_id', '78')
+            iso_country = self.config.get('country_code', 'FR').upper()
+            
+            print(f"[*] Requesting number from SMS-Activate (Country ID: {country_id})...")
+            phone_data = self.sms_api.get_number(service='ub', country=country_id)
+            
+            if phone_data:
+                full_number = phone_data['number']
+                activation_id = phone_data['id']
+                print(f"[✓] Number acquired: +{full_number}")
+                
+                session_id = await self._add_phone_number(session_id, full_number)
+                
+                if session_id:
+                    sms_code = self.sms_api.wait_for_code(activation_id)
+                    if sms_code:
+                        print(f"[✓] SMS Code received: {sms_code}")
+                        session_id = await self._submit_phone_otp(session_id, sms_code)
+                        if session_id:
+                            self.sms_api.set_status(activation_id, 6)
+                        else:
+                            print("[!] Failed to verify SMS code with Uber")
+                            self.sms_api.set_status(activation_id, 8)
+                            return False, None, None
+                    else:
+                        print("[!] SMS Timeout or Cancelled")
+                        self.sms_api.set_status(activation_id, 8)
+                        return False, None, None
+                else:
+                    print("[!] Failed to submit phone number to Uber")
+                    self.sms_api.set_status(activation_id, 8)
+                    return False, None, None
+            else:
+                print("[!] Failed to buy number from SMS Activate. Aborting.")
+                return False, None, None
+        else:
+            print("[*] Skipping phone number (SMS disabled)")
+            session_id = await self._skip_submit(session_id)
+            if not session_id:
+                print("[!] Skip submit failed, trying to continue anyway...")
 
         session_id = await self._submit_name(session_id, name)
         if not session_id:
@@ -468,7 +729,7 @@ class AccountGenerator:
                     },
                     "deviceData": json.dumps(self.device_info),
                     "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats",
                     "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
                     "screenAnswers": [
                         {
@@ -481,30 +742,14 @@ class AccountGenerator:
             }
         }
 
-        device = self.config.get('device', 'android').lower()
-        headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
-            'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
-            'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
-        }
-
-        response = await self.request_handler.post(
-            "Skip Submit",
-            ENDPOINTS['submit_form_geo'],
-            headers,
-            data
-        )
+        headers = self._get_headers()
+        response = await self.request_handler.post("Skip Submit", ENDPOINTS['submit_form_geo'], headers, data)
 
         if response:
-            return response.json().get('inAuthSessionID')
+            resp_json = response.json()
+            self._analyze_form_response(resp_json)
+            self.last_form_response = resp_json
+            return resp_json.get('inAuthSessionID')
         return None
 
     async def _submit_name(self, session_id: str, name: str) -> Optional[str]:
@@ -536,21 +781,15 @@ class AccountGenerator:
                     },
                     "deviceData": json.dumps(self.device_info),
                     "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
                     "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
                     "screenAnswers": [
                         {
                             "screenType": "FULL_NAME_PROGRESSIVE",
                             "eventType": "TypeInputNewUserFullName",
                             "fieldAnswers": [
-                                {
-                                    "fieldType": "FIRST_NAME",
-                                    "firstName": first_name
-                                },
-                                {
-                                    "fieldType": "LAST_NAME",
-                                    "lastName": last_name
-                                }
+                                {"fieldType": "FIRST_NAME", "firstName": first_name},
+                                {"fieldType": "LAST_NAME", "lastName": last_name}
                             ]
                         }
                     ]
@@ -558,30 +797,14 @@ class AccountGenerator:
             }
         }
 
-        device = self.config.get('device', 'android').lower()
-        headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
-            'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
-            'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
-        }
-
-        response = await self.request_handler.post(
-            "Submit Name",
-            ENDPOINTS['submit_form_geo'],
-            headers,
-            data
-        )
+        headers = self._get_headers()
+        response = await self.request_handler.post("Submit Name", ENDPOINTS['submit_form_geo'], headers, data)
 
         if response:
-            return response.json().get('inAuthSessionID')
+            resp_json = response.json()
+            self._analyze_form_response(resp_json)
+            self.last_form_response = resp_json
+            return resp_json.get('inAuthSessionID')
         return None
 
     async def _submit_legal_confirmation(self, session_id: str) -> Tuple[Optional[str], Optional[str]]:
@@ -612,17 +835,14 @@ class AccountGenerator:
                     },
                     "deviceData": json.dumps(self.device_info),
                     "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
+                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=FR",
                     "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
                     "screenAnswers": [
                         {
                             "screenType": "LEGAL",
                             "eventType": "TypeSignupLegal",
                             "fieldAnswers": [
-                                {
-                                    "fieldType": "LEGAL_CONFIRMATION",
-                                    "legalConfirmation": True
-                                },
+                                {"fieldType": "LEGAL_CONFIRMATION", "legalConfirmation": True},
                                 {
                                     "fieldType": "LEGAL_CONFIRMATIONS",
                                     "legalConfirmations": {
@@ -641,26 +861,8 @@ class AccountGenerator:
             }
         }
 
-        headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
-            'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
-            'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
-        }
-
-        response = await self.request_handler.post(
-            "Submit Legal",
-            ENDPOINTS['submit_form_geo'],
-            headers,
-            data
-        )
+        headers = self._get_headers()
+        response = await self.request_handler.post("Submit Legal", ENDPOINTS['submit_form_geo'], headers, data)
 
         if response:
             resp_json = response.json()
@@ -672,7 +874,6 @@ class AccountGenerator:
             except (IndexError, KeyError):
                 print("[!] Failed to extract auth code")
                 return None, None
-
         return None, None
 
     async def _submit_auth_code(self, session_id: str, auth_code: str, email: str = '', name: str = '') -> Tuple[bool, Optional[str], Optional[str]]:
@@ -713,17 +914,17 @@ class AccountGenerator:
         headers = {
             'Accept': '*/*',
             'X-Uber-Device-Location-Services-Enabled': '0',
-            'X-Uber-Device-Language': 'en_US',
+            'X-Uber-Device-Language': 'fr_FR',
             'User-Agent': '/iphone/' + client_app_version if is_ios else '/android/' + client_app_version,
             'X-Uber-Eats-App-Installed': '0',
             'X-Uber-App-Lifecycle-State': 'foreground',
             'X-Uber-Request-Uuid': str(uuid.uuid4()),
-            'X-Uber-Device-Time-24-Format-Enabled': '0',
+            'X-Uber-Device-Time-24-Format-Enabled': '1',
             'X-Uber-Device-Location-Provider': 'ios_core' if is_ios else 'network',
             'X-Uber-Markup-Textformat-Version': '1',
             'X-Uber-Device-Voiceover': '0',
             'X-Uber-Device-Model': 'iPhone21,4' if is_ios else 'Pixel 9 Pro',
-            'Accept-Language': 'en-US;q=1',
+            'Accept-Language': 'fr-FR;q=1',
             'X-Uber-Redirectcount': '0',
             'X-Uber-Device-Os': '18.0' if is_ios else '16',
             'X-Uber-Network-Classifier': 'fast',
@@ -734,9 +935,9 @@ class AccountGenerator:
             'X-Uber-Client-Name': 'eats',
             'Content-Type': 'application/json',
             'X-Uber-Device': 'iphone' if is_ios else 'android',
-            'X-Uber-Client-User-Session-Id': 'D7354EFE-AFB4-439E-8C9F-1AB8047DF1B5',
+            'X-Uber-Client-User-Session-Id': str(uuid.uuid4()),
             'X-Uber-Device-Ids': 'aaid:00000000-0000-0000-0000-000000000000',
-            'X-Uber-Device-Id': '6968C387-69C6-48B6-9600-51986944428C',
+            'X-Uber-Device-Id': str(uuid.uuid4()),
         }
 
         response = await self.request_handler.post(
@@ -746,7 +947,7 @@ class AccountGenerator:
             data
         )
 
-        # save device information(if enabled in console)
+        # Save account info
         save_info = self.config.get('save_info', {})
         
         try:
@@ -757,7 +958,6 @@ class AccountGenerator:
 
         account_information = {}
         if save_info.get('cookies', False):
-            # Save all cookies from the session, not just from the last response
             account_information['cookies'] = self.request_handler.session.cookies.get_dict()
         if save_info.get('device_data', False):
             account_information['device_data'] = self.device_info
@@ -773,80 +973,135 @@ class AccountGenerator:
             print(f"[!] Failed to save account information: {e}")
 
         if response:
-            # get auth_code and user_uuid for future requests
             resp_json = response.json()
             oauth_info = resp_json.get('oAuthInfo')
-            auth_code = oauth_info.get('accessToken', None) if oauth_info else None
+            access_token = oauth_info.get('accessToken', None) if oauth_info else None
             user_uuid = resp_json.get('userUUID', None)
-            return True, auth_code, user_uuid
+            
+            # Store for promo code usage
+            self.last_access_token = access_token
+            self.last_user_uuid = user_uuid
+            
+            return True, access_token, user_uuid
         else:
             return False, None, None
 
-    
     async def _apply_promo_code(self, auth_code: str, user_uuid: str, promo_code: str) -> bool:
-        data = {
-            'request': {
-                'savingsInfo': {
-                    'code': promo_code,
-                },
-                'userUuid': user_uuid,
-                'ctaType': 'BROWSE',
-            },
-        }
+        """Applique un code promo avec le bon endpoint et headers."""
+        
+        print(f"[*] Applying promo code: {promo_code}")
+        print(f"[DEBUG] Using token: {auth_code[:50]}..." if auth_code else "[DEBUG] No token!")
+        
+        # Endpoint alternatif plus fiable
+        endpoints_to_try = [
+            "https://cn-geo1.uber.com/rt/eats/v1/eater-promos/add",
+            "https://cn-geo1.uber.com/rt/eats/v2/eater-promos/add",
+            "https://cn-phx2.cfe.uber.com/rt/delivery/v1/consumer/apply-and-get-savings"
+        ]
+        
+        device = self.config.get('device', 'android').lower()
+        client_app_version = self.device_info.get('version', '6.294.10000')
+        
+        for endpoint in endpoints_to_try:
+            print(f"[DEBUG] Trying endpoint: {endpoint}")
+            
+            # Format du payload selon l'endpoint
+            if "eater-promos" in endpoint:
+                data = {
+                    "promoCode": promo_code
+                }
+            else:
+                data = {
+                    'request': {
+                        'savingsInfo': {'code': promo_code},
+                        'userUuid': user_uuid,
+                        'ctaType': 'BROWSE',
+                    }
+                }
+            
+            headers = {
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'fr-FR,fr;q=0.9',
+                'Authorization': f'Bearer {auth_code}',
+                'Content-Type': 'application/json',
+                'Host': endpoint.split('/')[2],
+                'Origin': 'https://www.ubereats.com',
+                'User-Agent': self._get_user_agent(),
+                'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
+                'X-Uber-Device-Language': 'fr_FR',
+                'X-Uber-Device-Model': 'iPhone21,4' if device == 'ios' else 'Pixel 9 Pro',
+                'X-Uber-Device-Os': '18.0' if device == 'ios' else '16',
+                'X-Uber-Client-Version': client_app_version,
+                'X-Uber-App-Variant': 'ubereats',
+                'X-Uber-Client-Id': 'com.ubercab.eats',
+                'X-Uber-Client-Name': 'eats',
+                'X-Uber-Device-Timezone': 'Europe/Paris',
+                'X-Uber-Device-Mobile-Iso2': 'FR',
+                'X-Uber-Network-Classifier': 'FAST',
+                'X-Uber-App-Lifecycle-State': 'foreground',
+            }
+            
+            # Use session cookies
+            cookies = self.request_handler.session.cookies.get_dict()
+            if cookies:
+                print(f"[DEBUG] Using {len(cookies)} session cookies")
+            
+            try:
+                response = self.request_handler.session.post(
+                    endpoint,
+                    headers=headers,
+                    json=data,
+                    timeout=30
+                )
+                
+                print(f"[DEBUG] Promo response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    resp_json = response.json()
+                    print(f"[DEBUG] Promo response: {json.dumps(resp_json, indent=2)[:500]}")
+                    
+                    if resp_json.get('chocolateChipCookieError'):
+                        print(f"[!] Promo error: {resp_json.get('chocolateChipCookieError')}")
+                        continue
+                    
+                    print("[✓] Promo code applied successfully!")
+                    return True
+                    
+                elif response.status_code == 401:
+                    print(f"[!] 401 Unauthorized - Token may be invalid or expired")
+                    try:
+                        error_json = response.json()
+                        print(f"    Error: {json.dumps(error_json, indent=2)}")
+                    except:
+                        print(f"    Response: {response.text[:200]}")
+                else:
+                    print(f"[!] Promo failed with status {response.status_code}")
+                    try:
+                        print(f"    Response: {response.json()}")
+                    except:
+                        print(f"    Response: {response.text[:200]}")
+                        
+            except Exception as e:
+                print(f"[!] Promo request error: {e}")
+                continue
+        
+        return False
 
-        headers = {
-            'x-uber-device-mobile-iso2': 'US',
-            'x-uber-device': 'android',
-            'x-uber-device-language': 'en_US',
-            'user-agent': 'Cronet/129.0.6668.102@aa3a5623',
-            'authorization': f'Bearer {auth_code}',
-            'x-uber-device-os': '10',
-            'x-uber-device-sdk': '29',
-            'x-uber-client-version': '6.294.10000',
-            'x-uber-device-manufacturer': 'samsung',
-            'x-uber-device-id': str(uuid.uuid4()),
-            'x-uber-markup-textformat-version': '1',
-            'x-uber-device-model': 'SM-G965U1',
-            'uberctx-mobile-initiated': 'true',
-            'x-uber-app-variant': 'ubereats',
-            'content-type': 'application/json; charset=UTF-8',
-            'x-uber-network-classifier': 'FAST',
-            'x-uber-token': 'no-token',
-            'x-uber-client-id': 'com.ubercab.eats',
-            'x-uber-app-lifecycle-state': 'foreground',
-            'x-uber-protocol-version': '0.73.0',
-            'x-uber-device-timezone': 'America/New_York',
-            'x-uber-client-name': 'eats',
-            'x-uber-device-voiceover': '0',
-            'priority': 'u=1, i',
-        }
-
-        response = await self.request_handler.post(
-            "Apply Promo Code",
-            ENDPOINTS['apply_promo_code'],
-            headers,
-            data
-        )
-
-        if response and response.json().get('chocolateChipCookieError'):
-            return False
-        elif response:
-            return True
-        else:
-            return False
-
-    async def create_account(self, domain: str, email_client: IMAPClient) -> Optional[str]:
-        # Generate new device info for each account to avoid fingerprint reuse
+    async def create_account(self, domain: str, email_client: IMAPClient, custom_name: Optional[str] = None) -> Optional[str]:
+        # Generate new device info
         self.device_info = generate_device_info()
-
-        # Reset session to isolate cookies between accounts
         self.request_handler.reset_session()
+        self.last_form_response = None
 
-        email, name = self.generate_user_info(domain)
+        email, generated_name = self.generate_user_info(domain)
+        name = custom_name if custom_name else generated_name
+        
         if domain == 'hotmail.com':
             email = email_client.username
 
         print(f"\n[*] Creating account for: {email}")
+        print(f"[*] Name: {name}")
 
         session_id = await self.email_signup(email)
         if not session_id:
@@ -856,7 +1111,6 @@ class AccountGenerator:
         if self.config.get('auto_get_otp', True):
             print("[*] Waiting for OTP...")
             await asyncio.sleep(5)
-
             otp_extractor = EmailOTPExtractor()
             otp = await otp_extractor.get_otp_async(email_client, email)
         else:
@@ -868,26 +1122,28 @@ class AccountGenerator:
 
         print(f"[✓] OTP received: {otp}")
 
-        session_id = await self.submit_otp(session_id, otp)
+        # submit_otp now returns form analysis
+        session_id, form_analysis = await self.submit_otp(session_id, otp)
         if not session_id:
             print("[!] Failed to verify OTP")
             return None
 
-        success, auth_code, user_uuid = await self.complete_registration(email, name, session_id)
+        success, auth_code, user_uuid = await self.complete_registration(email, name, session_id, form_analysis)
         if not success:
             print("[!] Failed to complete registration")
             return None
 
-        if self.config['promos'].get('auto_apply', False):
+        if self.config.get('promos', {}).get('auto_apply', False):
             promo_code = self.config['promos'].get('promo_code', '')
-            if not promo_code:
-                print("[!] Promo code not provided")
-
-            success = await self._apply_promo_code(auth_code, user_uuid, promo_code)
-            if success:
-                print("[✓] Promo code applied successfully!")
+            if promo_code:
+                await asyncio.sleep(2)  # Small delay before applying promo
+                success = await self._apply_promo_code(auth_code, user_uuid, promo_code)
+                if success:
+                    print("[✓] Promo code applied successfully!")
+                else:
+                    print("[!] Failed to apply promo code")
             else:
-                print("[!] Failed to apply promo code")
+                print("[!] Promo code not provided")
 
         print("[✓] Account created successfully!")
         self._save_account(email, name)
@@ -895,4 +1151,4 @@ class AccountGenerator:
 
     def _save_account(self, email: str, name: str = ''):
         with open('accounts.txt', 'a') as f:
-            f.write(f'{email}\n')
+            f.write(f'{email} | {name}\n')

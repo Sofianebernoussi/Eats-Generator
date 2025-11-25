@@ -3,13 +3,18 @@
   "proxy_enabled": false,
   "cycle_proxies": false,
   "auto_get_otp": false,
-    "country_code": "FR",
+  "country_code": "FR",
+  "sms_activate": {
+    "enabled": true,
+    "api_key": "97329b20cf2232148AbcbA94bb70ec89",
+    "country_id": "78" 
+  },
   "save_info": {
     "cookies": false,
     "device_data": false,
     "account_info": true
   },
-    "stealth": {
+  "stealth": {
     "enable_stealth_mode": true,
     "min_delay_between_requests": 2,
     "max_delay_between_requests": 8,
@@ -24,9 +29,8 @@
     "password": "your_app_password",
     "server": "imap.gmail.com",
     "domains": [
-      "yourdomain.com",
-      "anotherdomain.com",
-      "<- MULTIPLE DOMAINS OPTIONAL"
+      "outlook.com",
+      "hotmail.com"
     ]
   }
 }
